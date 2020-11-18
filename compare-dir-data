@@ -1,0 +1,67 @@
+#!/usr/bin/env bb
+
+(ns compare-trees
+  (:require
+   [clojure.java.io :as io]
+   [clojure.edn :as edn]
+   [clojure.data :refer [diff]]))
+
+(defn clean-entry
+  [m]
+  (cond
+    (contains? m :dir)
+    (select-keys m [:dir])
+
+    (contains? m :file)
+    (select-keys m [:file :md5 :size])
+
+    (contains? m :link)
+    (select-keys m [:link :target])))
+
+(defn read-stat-file
+  [f]
+  (with-open [in (java.io.BufferedReader. (io/reader (io/file f)))]
+    (->> in
+         line-seq
+         (map (comp clean-entry edn/read-string))
+         (into #{}))))
+
+(defn entry-name
+  [e]
+  (or (:dir e) (:file e) (:link e)))
+
+(defn refine-diffs
+  [t1 t2]
+  (let [t1-map (into {} (map #(vector (entry-name %) %) t1))
+        t2-map (into {} (map #(vector (entry-name %) %) t2))
+        [only-t1 only-t2 both] (diff (set (keys t1-map)) (set (keys t2-map)))]
+    (when (pos? (count only-t1))
+      (println (count only-t1) "entries exist only in Tree 1:")
+      (doseq [f (sort only-t1)]
+        (println "  " f)))
+    (when (pos? (count only-t2))
+      (println (count only-t2) "entries exist only in Tree 2:")
+      (doseq [f (sort only-t2)]
+        (println "  " f)))
+    (when (pos? (count both))
+      (println (count both) "entries exist in both trees but are different:")
+      ;; TODO - refine what is different
+      (doseq [f (sort both)]
+        (println "  " f)))))
+      
+(defn report-diffs
+  [t1 t2]
+  (let [[only-t1 only-t2 both] (diff t1 t2)]
+    (println "Trees have differences.")
+    (println (count both) "entries are the same.")
+    (refine-diffs only-t1 only-t2)))
+
+;; test if equal - if equal then report count and equality.
+(defn report
+  [t1 t2]
+  (if (= t1 t2)
+    (println (count t1) "entries are equal.")
+    (report-diffs t1 t2)))
+
+(report (read-stat-file (first *command-line-args*))
+        (read-stat-file (second *command-line-args*)))
